@@ -1,0 +1,60 @@
+name: Mirror OpenAI OpenAPI
+
+on:
+  push:
+    paths:
+      - vendor/openai/UPSTREAM
+      - .github/workflows/mirror-openai-openapi.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out pinned branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Fetch and verify pinned specification
+        shell: sh
+        run: |
+          set -eu
+          upstream="$(sed -n 's/^repository=//p' vendor/openai/UPSTREAM)"
+          commit="$(sed -n 's/^commit=//p' vendor/openai/UPSTREAM)"
+          path="$(sed -n 's/^path=//p' vendor/openai/UPSTREAM)"
+          expected_blob="$(sed -n 's/^blob=//p' vendor/openai/UPSTREAM)"
+
+          test -n "$upstream"
+          test -n "$commit"
+          test -n "$path"
+          test -n "$expected_blob"
+
+          raw="https://raw.githubusercontent.com/openai/openai-openapi/$commit/$path"
+          tmp="$(mktemp)"
+          trap 'rm -f "$tmp"' EXIT
+          curl -fL --retry 3 --retry-delay 1 "$raw" -o "$tmp"
+
+          actual_blob="$(git hash-object "$tmp")"
+          test "$actual_blob" = "$expected_blob"
+
+          mkdir -p vendor/openai
+          mv "$tmp" vendor/openai/openapi.yaml
+          trap - EXIT
+          sha256sum vendor/openai/openapi.yaml > vendor/openai/openapi.yaml.sha256
+
+      - name: Commit exact mirror when changed
+        shell: sh
+        run: |
+          set -eu
+          if test -z "$(git status --porcelain -- vendor/openai/openapi.yaml vendor/openai/openapi.yaml.sha256)"; then
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add vendor/openai/openapi.yaml vendor/openai/openapi.yaml.sha256
+          git commit -m "Mirror pinned OpenAI OpenAPI specification"
+          git push
