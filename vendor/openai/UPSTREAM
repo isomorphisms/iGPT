@@ -1,0 +1,6 @@
+repository=https://github.com/openai/openai-openapi
+commit=ac89e26b5fa142cf9e0c4be4e19c1858607835c1
+path=openapi.yaml
+blob=8a94ed24cc153ae3fb667264d1fc8438531d04c6
+openai_api_ref_source_revision=1107389
+pinned_date=2026-09-16
