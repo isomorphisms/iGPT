@@ -1,0 +1,296 @@
+#!/usr/bin/env grease
+# iGPT's first executable slice.
+#
+# This file intentionally uses current Grease readable condition syntax. Run it
+# with the Grease runtime; do not substitute Bash and call that a Grease test.
+
+set -o errexit
+set -o nounset
+
+fail() {
+    printf 'igpt: %s\n' "$*" >&2
+    exit 2
+}
+
+usage() {
+    cat <<'EOF'
+usage: igpt <command> [arguments]
+
+commands:
+  where
+      Print the local iGPT data root.
+
+  new
+      Create a local conversation and print its local id.
+
+  list
+      List locally stored conversation ids.
+
+  append CONVERSATION ROLE [TEXT...]
+      Append a local event. With no TEXT arguments, read the body from stdin.
+      ROLE is one of: user, assistant, system, tool.
+
+  send CONVERSATION [TEXT...]
+      Persist a user event locally, then place it in the local outbox.
+      This stub does not contact OpenAI yet.
+
+  show CONVERSATION
+      Replay locally stored events without network access.
+
+  pending
+      List pending outbox records.
+
+  sync
+      Reserved API boundary. Network synchronization is not implemented yet.
+
+Environment:
+  IGPT_HOME      local data root; useful for placing iGPT data on an SD card
+  XDG_DATA_HOME  fallback parent when IGPT_HOME is unset
+EOF
+}
+
+resolve_home() {
+    if ⟦ -n "${IGPT_HOME:-}" ⟧; then
+        igpt_home=$IGPT_HOME
+    elif ⟦ -n "${XDG_DATA_HOME:-}" ⟧; then
+        igpt_home=$XDG_DATA_HOME/igpt
+    else
+        igpt_home=${HOME:?HOME is not set}/.local/share/igpt
+    fi
+
+    conversations_dir=$igpt_home/conversations
+    outbox_dir=$igpt_home/outbox
+}
+
+ensure_home() {
+    resolve_home
+    mkdir -p "$conversations_dir" "$outbox_dir"
+}
+
+utc_now() {
+    date -u '+%Y-%m-%dT%H:%M:%SZ'
+}
+
+conversation_path() {
+    requested_conversation=$1
+    selected_conversation_dir=$conversations_dir/$requested_conversation
+    ⟦ -d "$selected_conversation_dir" ⟧ || fail "unknown conversation: $requested_conversation"
+}
+
+write_body() {
+    if ⟦ "$#" -gt 0 ⟧; then
+        printf '%s\n' "$*"
+    else
+        cat
+    fi
+}
+
+validate_role() {
+    candidate_role=$1
+    if ⟦ "$candidate_role" = user ∨ "$candidate_role" = assistant ∨ "$candidate_role" = system ∨ "$candidate_role" = tool ⟧; then
+        return 0
+    fi
+    fail "invalid role: $candidate_role"
+}
+
+new_conversation() {
+    ensure_home
+
+    selected_conversation_dir=$(mktemp -d "$conversations_dir/conversation.XXXXXXXX")
+    conversation_id=$(basename "$selected_conversation_dir")
+    created_at=$(utc_now)
+
+    cat > "$selected_conversation_dir/conversation.meta" <<EOF
+schema=igpt-conversation-v1
+local_conversation_id=$conversation_id
+created_at=$created_at
+remote_conversation_id=
+EOF
+
+    mkdir -p "$selected_conversation_dir/events"
+    printf '1\n' > "$selected_conversation_dir/next_sequence"
+    printf '%s\n' "$conversation_id"
+}
+
+append_event() {
+    ensure_home
+    ⟦ "$#" -ge 2 ⟧ || fail 'append requires CONVERSATION and ROLE'
+
+    requested_conversation=$1
+    role=$2
+    shift 2
+
+    validate_role "$role"
+    conversation_path "$requested_conversation"
+
+    next_file=$selected_conversation_dir/next_sequence
+    if ⟦ -f "$next_file" ⟧; then
+        sequence=$(cat "$next_file")
+    else
+        sequence=1
+    fi
+
+    events_dir=$selected_conversation_dir/events
+    mkdir -p "$events_dir"
+
+    while :; do
+        padded_sequence=$(printf '%08d' "$sequence")
+        event_id=event.$padded_sequence
+        meta_path=$events_dir/$event_id.meta
+        body_path=$events_dir/$event_id.txt
+        if ⟦ ! -e "$meta_path" ∧ ! -e "$body_path" ⟧; then
+            break
+        fi
+        sequence=$((sequence + 1))
+    done
+
+    body_tmp=$body_path.tmp.$$
+    meta_tmp=$meta_path.tmp.$$
+    next_tmp=$next_file.tmp.$$
+    created_at=$(utc_now)
+
+    write_body "$@" > "$body_tmp"
+    mv "$body_tmp" "$body_path"
+
+    cat > "$meta_tmp" <<EOF
+schema=igpt-event-v1
+local_event_id=$event_id
+sequence=$sequence
+role=$role
+created_at=$created_at
+remote_object_id=
+remote_submission_state=local
+remote_completion_state=not_submitted
+body=events/$event_id.txt
+EOF
+    mv "$meta_tmp" "$meta_path"
+
+    next_sequence=$((sequence + 1))
+    printf '%s\n' "$next_sequence" > "$next_tmp"
+    mv "$next_tmp" "$next_file"
+
+    last_event_id=$event_id
+}
+
+append_command() {
+    ⟦ "$#" -ge 2 ⟧ || fail 'append requires CONVERSATION and ROLE'
+    append_event "$@"
+    printf '%s\n' "$last_event_id"
+}
+
+queue_send() {
+    ensure_home
+    ⟦ "$#" -ge 1 ⟧ || fail 'send requires CONVERSATION'
+
+    requested_conversation=$1
+    shift
+
+    append_event "$requested_conversation" user "$@"
+    queued_event_id=$last_event_id
+    queued_at=$(utc_now)
+
+    outbox_path=$outbox_dir/$requested_conversation.$queued_event_id.pending
+    outbox_tmp=$outbox_path.tmp.$$
+
+    cat > "$outbox_tmp" <<EOF
+schema=igpt-outbox-v1
+local_conversation_id=$requested_conversation
+local_event_id=$queued_event_id
+queued_at=$queued_at
+state=pending
+EOF
+    mv "$outbox_tmp" "$outbox_path"
+
+    printf '%s\n' "$queued_event_id"
+}
+
+show_conversation() {
+    ensure_home
+    ⟦ "$#" -eq 1 ⟧ || fail 'show requires CONVERSATION'
+    conversation_path "$1"
+
+    found_event=0
+    for meta_path in "$selected_conversation_dir"/events/*.meta; do
+        ⟦ -f "$meta_path" ⟧ || continue
+        found_event=1
+        role=$(sed -n 's/^role=//p' "$meta_path")
+        body_relative=$(sed -n 's/^body=//p' "$meta_path")
+        body_path=$selected_conversation_dir/$body_relative
+
+        printf '[%s]\n' "$role"
+        cat "$body_path"
+        printf '\n'
+    done
+
+    return 0
+}
+
+list_conversations() {
+    ensure_home
+    for selected_conversation_dir in "$conversations_dir"/conversation.*; do
+        ⟦ -d "$selected_conversation_dir" ⟧ || continue
+        basename "$selected_conversation_dir"
+    done
+}
+
+list_pending() {
+    ensure_home
+    for pending_path in "$outbox_dir"/*.pending; do
+        ⟦ -f "$pending_path" ⟧ || continue
+        basename "$pending_path"
+    done
+}
+
+sync_stub() {
+    ensure_home
+    printf '%s\n' 'igpt: sync boundary exists; OpenAI submission is not implemented in this stub' >&2
+    return 2
+}
+
+main() {
+    command_name=${1:-help}
+    if ⟦ "$#" -gt 0 ⟧; then
+        shift
+    fi
+
+    case "$command_name" in
+        where)
+            resolve_home
+            printf '%s\n' "$igpt_home"
+            ;;
+        new)
+            ⟦ "$#" -eq 0 ⟧ || fail 'new takes no arguments'
+            new_conversation
+            ;;
+        list)
+            ⟦ "$#" -eq 0 ⟧ || fail 'list takes no arguments'
+            list_conversations
+            ;;
+        append)
+            append_command "$@"
+            ;;
+        send)
+            queue_send "$@"
+            ;;
+        show)
+            show_conversation "$@"
+            ;;
+        pending)
+            ⟦ "$#" -eq 0 ⟧ || fail 'pending takes no arguments'
+            list_pending
+            ;;
+        sync)
+            ⟦ "$#" -eq 0 ⟧ || fail 'sync takes no arguments yet'
+            sync_stub
+            ;;
+        help|-h|--help)
+            usage
+            ;;
+        *)
+            usage >&2
+            fail "unknown command: $command_name"
+            ;;
+    esac
+}
+
+main "$@"
