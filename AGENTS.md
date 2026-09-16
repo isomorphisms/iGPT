@@ -52,3 +52,4 @@ The intended user experience is that already-seen history can render from local 
 - Prefer small branches and reviewable changes.
 - Claims about current API behavior should name the upstream revision or a dated official source.
 - Acceptance evidence must state what was actually exercised; do not promote desktop/emulator/cloud evidence into physical-device evidence.
+- Whenever giving the human a script or command block, assume `$PWD` is arbitrary. Resolve repository and file paths from the script's own location, an explicit project location, or a discovered repository root, and perform any required `cd` inside the script. Never require the human to `cd` first or rely on relative paths against their current working directory.
