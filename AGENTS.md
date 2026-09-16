@@ -56,7 +56,7 @@ For the current stub, `send` means: persist the user event locally, then put a r
 - `IGPT_HOME` is the explicit data-root override and may point at SD/removable storage.
 - Compression is an empirical design choice, not a premise. If tested, use LZ4 as a latency baseline and zstd as a density comparison; benchmark on the actual target device and storage.
 - If compression is adopted for interactive data, prefer independently decodable blocks over a monolithic archive.
-- Do not choose SQLite, a filesystem-only final layout, or another database merely because the stub currently uses files. Decide from measured/specifed access patterns.
+- Do not choose SQLite, a filesystem-only final layout, or another database merely because the stub currently uses files. Decide from measured/specified access patterns.
 
 ## Change discipline
 
