@@ -1,0 +1,55 @@
+#!/usr/bin/env grease
+# Local-only acceptance fixture for the first iGPT Grease slice.
+# Run with the current Grease runtime, for example:
+#   grease tests/local-first.grease
+
+set -o errexit
+set -o nounset
+
+fail() {
+    printf 'local-first fixture: %s\n' "$*" >&2
+    exit 1
+}
+
+test_dir=$(CDPATH= cd "$(dirname "$0")" && pwd)
+repo_root=$(CDPATH= cd "$test_dir/.." && pwd)
+runtime=${GREASE:-grease}
+igpt_source=$repo_root/source/igpt.grease
+
+temporary=$(mktemp -d "${TMPDIR:-/tmp}/igpt-local-first.XXXXXXXX")
+cleanup() {
+    rm -rf "$temporary"
+}
+trap cleanup EXIT HUP INT TERM
+
+export IGPT_HOME=$temporary/data
+
+# Deliberately run from somewhere unrelated to the repository.
+cd /
+
+conversation=$($runtime "$igpt_source" new)
+⟦ -n "$conversation" ⟧ || fail 'new did not return a conversation id'
+
+user_event=$($runtime "$igpt_source" send "$conversation" 'hello local cache')
+assistant_event=$($runtime "$igpt_source" append "$conversation" assistant 'cached reply')
+
+⟦ "$user_event" = event.00000001 ∧ "$assistant_event" = event.00000002 ⟧ ||
+    fail 'unexpected event sequence'
+
+rendered=$($runtime "$igpt_source" show "$conversation")
+printf '%s\n' "$rendered" | grep -F '[user]' >/dev/null || fail 'missing user role in replay'
+printf '%s\n' "$rendered" | grep -F 'hello local cache' >/dev/null || fail 'missing user body in replay'
+printf '%s\n' "$rendered" | grep -F '[assistant]' >/dev/null || fail 'missing assistant role in replay'
+printf '%s\n' "$rendered" | grep -F 'cached reply' >/dev/null || fail 'missing assistant body in replay'
+
+conversation_dir=$IGPT_HOME/conversations/$conversation
+⟦ -f "$conversation_dir/events/event.00000001.txt" ∧ -f "$conversation_dir/events/event.00000002.txt" ⟧ ||
+    fail 'plain event bodies were not persisted'
+
+grep -F 'hello local cache' "$conversation_dir/events/event.00000001.txt" >/dev/null ||
+    fail 'user body is not readable plain text'
+
+grep -F 'state=pending' "$IGPT_HOME/outbox/$conversation.event.00000001.pending" >/dev/null ||
+    fail 'send did not create pending outbox state'
+
+printf 'PASS local-first Grease stub: %s\n' "$conversation"
