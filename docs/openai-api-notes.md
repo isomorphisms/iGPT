@@ -20,6 +20,8 @@ These notes are a machine-oriented second pass over the API surface. They are no
 - Upstream describes the document as OpenAPI 3.1 and as the machine-readable description of endpoints, authentication, parameters, request schemas, and response schemas.
 - `vendor/openai/openapi.yaml` is generated from that exact pin. Do not edit it by hand.
 - `vendor/openai/UPSTREAM` records both the upstream commit and expected Git blob id.
+- `vendor/openai/chatgpt-history-sources.tsv` records dated official non-OpenAPI sources for personal ChatGPT export and Enterprise/Edu Compliance, plus the unsupported product-internal boundary.
+- `docs/chatgpt-history-surfaces.md` explains how those source classes differ operationally.
 - This repository concerns the developer API. Do not assume undocumented access to consumer ChatGPT conversations, ChatGPT memory, subscription state, or internal ChatGPT endpoints.
 
 ## Frontend-relevant surface
@@ -45,6 +47,10 @@ These notes are a machine-oriented second pass over the API surface. They are no
 ### Conversations and server state
 
 - API-side conversations are useful remote state but are not a substitute for iGPT's local corpus.
+- Developer-platform conversation objects are not evidence of access to a consumer ChatGPT account's sidebar conversations.
+- At the checked revision, the documented conversation update changes metadata. The documented conversation object does not provide a ChatGPT-sidebar title contract; storing an iGPT title in metadata would remain iGPT metadata, not a personal ChatGPT rename operation.
+- No supported public personal-account operation was identified in the checked official sources for listing all ChatGPT sidebar conversations or renaming an existing sidebar chat. Keep that absence distinct from what the developer Conversations API can do.
+- Personal ChatGPT data export is a separate read/import surface. Enterprise/Edu Compliance is a separate administrative workspace surface. Neither should be silently treated as developer Conversations synchronization.
 - Local records should retain stable identifiers for remote conversations, responses, messages/items, tool calls, and stream sequence positions when those identifiers exist.
 - Do not require a complete remote-history fetch before rendering locally available history.
 
@@ -145,12 +151,15 @@ Do not equate remote deletion, expiration, or inaccessible state with permission
 - How much API-side conversation state to use versus resending locally selected context.
 - Tool execution architecture.
 - Import strategy for pre-existing ChatGPT exports.
+- Whether any optional UI automation adapter should ever apply iGPT titles back to ChatGPT, and if so what evidence and safety boundary it requires.
 - Automatic SD-card placement policy.
 
 ## Machine-reading rules
 
 - Treat `vendor/openai/openapi.yaml` as normative for API shapes.
+- Treat `vendor/openai/chatgpt-history-sources.tsv` as the dated registry for non-OpenAPI ChatGPT source classes, not as an API contract.
 - Treat this file as design commentary and extracted operational constraints.
+- Treat `docs/chatgpt-history-surfaces.md` as the explicit personal-history/export/compliance/internal-interface boundary.
 - Treat `docs/local-state-v1.md` as the current executable stub contract, not as a permanent storage promise.
 - Preserve statements under `Things deliberately not decided yet` as unresolved; do not choose defaults merely to complete a task.
 - Any future API claim should carry either an upstream spec revision or a dated official-documentation verification.

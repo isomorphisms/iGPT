@@ -9,9 +9,11 @@ iGPT is an alternative frontend and local-state experiment for the OpenAI develo
 1. `vendor/openai/UPSTREAM` — exact upstream revision and expected Git blob id.
 2. `vendor/openai/openapi.yaml` — mirrored OpenAI OpenAPI 3.1 specification. This is the normative API-shape source and is generated; never edit it by hand.
 3. `docs/openai-api-notes.md` — machine-oriented review of the API and iGPT implications. This is commentary, not the contract.
-4. `docs/local-state-v1.md` — current executable local-state stub and its deliberately unresolved boundaries.
-5. `source/igpt.grease` — first executable client slice.
-6. `vendor/openai/LICENSE` — license accompanying the mirrored OpenAI specification.
+4. `vendor/openai/chatgpt-history-sources.tsv` — dated registry separating developer Conversations, personal export, Enterprise/Edu Compliance, and undocumented ChatGPT product internals.
+5. `docs/chatgpt-history-surfaces.md` — operational interpretation of those source classes, including the chat-title boundary.
+6. `docs/local-state-v1.md` — current executable local-state stub and its deliberately unresolved boundaries.
+7. `source/igpt.grease` — first executable client slice.
+8. `vendor/openai/LICENSE` — license accompanying the mirrored OpenAI specification.
 
 If the notes and the OpenAPI mirror disagree about an endpoint, parameter, request, response, or schema, the pinned OpenAPI mirror wins. If current upstream behavior is relevant, update the pin and mirror before rewriting assumptions around an old snapshot.
 
@@ -22,6 +24,8 @@ If the notes and the OpenAPI mirror disagree about an endpoint, parameter, reque
 - Let `.github/workflows/mirror-openai-openapi.yml` fetch and verify the exact pinned file.
 - After a source update, review `docs/openai-api-notes.md` for semantic drift.
 - Preserve upstream provenance and license.
+- For ChatGPT product/help surfaces not represented in the OpenAPI specification, update `vendor/openai/chatgpt-history-sources.tsv` with an official URL and verification date, then review `docs/chatgpt-history-surfaces.md`.
+- Do not create a fake mirror for undocumented product-internal endpoints. Record absence of a supported contract instead.
 
 ## Implementation language
 
@@ -43,6 +47,10 @@ For the current stub, `send` means: persist the user event locally, then put a r
 
 - Use documented OpenAI developer API surfaces.
 - Do not infer access to personal ChatGPT history, ChatGPT memory, consumer subscription state, or internal ChatGPT endpoints.
+- Do not equate developer-platform conversation objects with ChatGPT sidebar conversations.
+- A developer conversation metadata field is not a ChatGPT sidebar title. Treat an iGPT title as local application state unless a future supported API explicitly documents otherwise.
+- Personal ChatGPT data export is an import/reference surface, not a live mutation API.
+- Enterprise/Edu Compliance access is a separate administrative workspace surface, not evidence of personal-account history access.
 - Keep API credentials out of source, fixtures, logs, transcripts, and generated artifacts.
 - Keep remote ids alongside local ids rather than using remote ids as the only local identity.
 - Preserve streaming, retry, interruption, tool-call, and error distinctions in durable state once those paths are implemented.
