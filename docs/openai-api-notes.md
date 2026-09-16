@@ -6,7 +6,7 @@ verified_date: 2026-09-16
 upstream_commit: ac89e26b5fa142cf9e0c4be4e19c1858607835c1
 normative_spec: vendor/openai/openapi.yaml
 source_pin: vendor/openai/UPSTREAM
-implementation_language: undecided
+implementation_language: grease-first
 ---
 
 # OpenAI API notes
@@ -88,12 +88,13 @@ A useful invariant for a new event is:
 
 1. accept local user input;
 2. persist the local record and ordering information;
-3. submit the API request;
-4. persist streamed deltas/events or the completed response with remote identifiers;
-5. update indexes asynchronously or incrementally;
-6. reconcile remote state without blocking display of already-local material.
+3. place remote work in an explicit local outbox;
+4. submit the API request;
+5. persist streamed deltas/events or the completed response with remote identifiers;
+6. update indexes asynchronously or incrementally;
+7. reconcile remote state without blocking display of already-local material.
 
-Exact crash-consistency semantics remain undecided and should be specified before implementation.
+The first Grease stub implements steps 1-3 only. `sync` is an explicit unimplemented boundary. Exact crash-consistency and concurrent-writer semantics remain undecided and should be specified from evidence before they are claimed.
 
 ### Text representation
 
@@ -127,21 +128,30 @@ Track at least:
 
 Do not equate remote deletion, expiration, or inaccessible state with permission to destroy the local record unless an explicit local deletion policy says so.
 
+## Implementation-language boundary
+
+- The first executable client slice is Grease, using the current Oils/YSH-derived Grease line.
+- The on-disk state must remain language-neutral.
+- Idriç remains a later option for typed protocol/state components after real usage shows which distinctions and invariants need to be encoded.
+- Do not reinterpret the Grease-first decision as a permanent prohibition on Idriç or as permission to make the storage format depend on Grease syntax.
+
 ## Things deliberately not decided yet
 
-- Grease versus Idriç for implementation.
-- Exact on-disk record format.
+- Which later components, if any, should move from Grease to Idriç.
+- Exact final on-disk record format beyond the documented local-state stub.
 - SQLite versus filesystem-first metadata/index structures.
 - Compression codec and block size.
 - Whether iGPT talks directly to the API from a personal device or through an intermediary service.
 - How much API-side conversation state to use versus resending locally selected context.
 - Tool execution architecture.
 - Import strategy for pre-existing ChatGPT exports.
+- Automatic SD-card placement policy.
 
 ## Machine-reading rules
 
 - Treat `vendor/openai/openapi.yaml` as normative for API shapes.
 - Treat this file as design commentary and extracted operational constraints.
+- Treat `docs/local-state-v1.md` as the current executable stub contract, not as a permanent storage promise.
 - Preserve statements under `Things deliberately not decided yet` as unresolved; do not choose defaults merely to complete a task.
 - Any future API claim should carry either an upstream spec revision or a dated official-documentation verification.
 - When updating the upstream pin, regenerate the mirror first, then review this file for drift.
